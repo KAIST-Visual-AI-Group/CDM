@@ -1,0 +1,103 @@
+# Base twisted SMC: the twist is the reward twist of Eq. (7), estimated with M x0-predictions
+# per denoising step. No trained twist head is involved. K=1 reduces to the base model.
+
+defaults:
+  - _self_
+  - model: small
+  - noise: loglinear
+  - data: openwebtext
+  - override hydra/job_logging: disabled
+  - override hydra/hydra_logging: disabled
+
+# ─── Experiment ───
+disable_wandb: true
+wandb_name: cdm
+method: smc
+checkpoint_path: ./cdm/texts_mdm/checkpoints/mdlm.ckpt
+tokenizer: gpt2
+seq_len: 100
+save_path: ./outputs/texts_mdm
+
+reward_name: toxicity
+reward_label: positive
+kl_weight: 0.2
+
+num_timesteps: 100
+gen_length: null
+batch_size: 4
+reward_eval_batch_size: 512
+num_sample_batches: 20
+
+prompt_file: ./cdm/texts_mdm/data/pplm_discrim_prompts_orig.jsonl
+reward_trim_length: 100
+
+# ─── SMC at inference ───
+K: 8
+ess_threshold: 0.5        # resample when normalized ESS < ess_threshold * K
+score: x0_pred
+M: 1
+m_chunk_size: 32
+twist_ckpt: null
+
+seed: 42
+
+# ─── Vendored MDLM model schema (consumed by diffusion.Diffusion; not CDM options) ───
+backbone: dit
+parameterization: subs
+T: 0
+time_conditioning: false
+subs_masking: false
+
+training:
+  ema: 0.9999
+  antithetic_sampling: true
+  importance_sampling: false
+  change_of_variables: false
+  sampling_eps: 1.0e-3
+
+sampling:
+  predictor: ddpm_cache
+  steps: ${num_timesteps}
+  noise_removal: true
+  nucleus_p: 0.9
+  sampler: mdlm
+  dfm: false
+  num_sample_batches: 1
+  num_sample_log: 1
+  semi_ar: false
+  stride_length: 1
+  num_strides: 1
+
+eval:
+  checkpoint_path: ${checkpoint_path}
+  gen_ppl_eval_model_name_or_path: gpt2-large
+  compute_generative_perplexity: false
+  perplexity_batch_size: 8
+  compute_perplexity_on_sanity: false
+  generate_samples: false
+
+optim:
+  lr: 1e-4
+  beta1: 0.9
+  beta2: 0.999
+  eps: 1.0e-8
+  weight_decay: 0
+
+loader:
+  batch_size: ${batch_size}
+  eval_batch_size: ${batch_size}
+  num_workers: 4
+  pin_memory: true
+
+lr_scheduler:
+  _target_: utils.CosineDecayWarmupLRScheduler
+
+hydra:
+  run:
+    dir: .
+  job:
+    chdir: false
+  output_subdir: null
+  job_logging:
+    root:
+      handlers: []

@@ -1,0 +1,48 @@
+# Base twisted SMC: the twist is the reward twist of Eq. (7), estimated with M x0-predictions
+# per denoising step. No trained twist head is involved. K=1 reduces to the base model.
+
+defaults:
+  - _self_
+  - override hydra/job_logging: disabled
+  - override hydra/hydra_logging: disabled
+
+# ─── Experiment ───
+disable_wandb: true
+wandb_project: cdm
+wandb_entity:
+wandb_name:
+method: smc
+save_path: ./outputs/proteins
+seed: 42
+
+# ─── Sampling ───
+seq_length: 100            # 204 tokens total: 100 AA + 100 struct + 4 bos/eos
+steps: 20
+batch_size: 10
+num_sample_batches: 50
+temperature: 1.0
+sampling_strategy: "annealing@2.0:0.1"
+
+# ─── Reward ───
+reward_name: esmfold       # given reward -scRMSD; heldout reward scTM from the same fold
+kl_weight: 0.1
+
+# ─── SMC at inference ───
+K: 8
+score: x0_pred
+M: 4
+ess_threshold: 0.5         # resample when normalized ESS < ess_threshold * K
+chunk_m_size: 8            # max MC samples (M-axis) per forward in _score
+chunk_b_size: 8            # max particles (B-axis) per forward
+chunk_sample_size: 8       # max particles per denoiser call inside the proposal
+twist_ckpt: null
+
+hydra:
+  run:
+    dir: .
+  job:
+    chdir: false
+  output_subdir: null
+  job_logging:
+    root:
+      handlers: []

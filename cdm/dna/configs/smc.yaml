@@ -1,0 +1,83 @@
+# Base twisted SMC: the twist is the reward twist of Eq. (7), estimated with M x0-predictions
+# per denoising step. No trained twist head is involved. K=1 reduces to the base model.
+
+defaults:
+  - _self_
+  - model: dnaconv
+  - noise: loglinear
+  - override hydra/job_logging: disabled
+  - override hydra/hydra_logging: disabled
+
+# ─── Experiment ───
+disable_wandb: true
+wandb_name: cdm
+method: smc
+checkpoint_path: ./cdm/dna/checkpoints/mpra.ckpt
+seq_len: 200
+save_path: ./outputs/dna
+
+reward_name: hepg2
+kl_weight: 0.2
+
+num_timesteps: 50
+gen_length: null
+batch_size: 100
+num_sample_batches: 200
+
+# ─── SMC at inference ───
+K: 8
+score: x0_pred
+ess_threshold: 0.5        # resample when ESS < ess_threshold * K
+M: 1
+m_chunk_size: 1024
+b_chunk_size: 1024
+twist_ckpt: null
+
+seed: 42
+
+# ─── Vendored duo/MDLM model schema (consumed by diffusion.Diffusion; not CDM options) ───
+backbone: cnn
+parameterization: subs
+T: 0
+time_conditioning: false
+subs_masking: false
+
+training:
+  ema: 0.9999
+  antithetic_sampling: true
+  importance_sampling: false
+  change_of_variables: false
+  sampling_eps: 1.0e-3
+
+sampling:
+  predictor: ddpm_cache
+  steps: ${num_timesteps}
+  noise_removal: true
+  sampler: mdlm
+
+eval:
+  checkpoint_path: ${checkpoint_path}
+
+optim:
+  lr: 3e-4
+  beta1: 0.9
+  beta2: 0.999
+  eps: 1.0e-8
+  weight_decay: 0
+
+loader:
+  batch_size: ${batch_size}
+  eval_batch_size: ${batch_size}
+
+lr_scheduler:
+  _target_: cdm.dna.utils.CosineDecayWarmupLRScheduler
+
+hydra:
+  run:
+    dir: .
+  job:
+    chdir: false
+  output_subdir: null
+  job_logging:
+    root:
+      handlers: []

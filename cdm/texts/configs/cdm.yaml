@@ -1,0 +1,129 @@
+# CDM. With twist_ckpt=null this trains psi_theta and then samples with it; with
+# twist_ckpt=<path> it skips training and runs the same SMC loop with the trained twist loaded.
+
+defaults:
+  - _self_
+  - override hydra/job_logging: disabled
+  - override hydra/hydra_logging: disabled
+
+# ─── Experiment ───
+disable_wandb: true
+wandb_project: cdm
+wandb_name:
+method: cdm
+save_path: ./outputs/texts
+seed: 42
+device: cuda
+
+# RewardBench 80/20 split: train for CDM training, test for evaluation.
+train_rewardbench_jsonl: ./cdm/texts/text_dataset/rewardbench/train.jsonl
+eval_rewardbench_jsonl: ./cdm/texts/text_dataset/rewardbench/eval.jsonl
+
+# ─── Reward ───
+reward_name: skywork       # given reward; the heldout reward is always ArmoRM
+reward_label: positive
+kl_weight: 2.0             # larger than the other apps: Skywork scores live on a larger scale
+pos_alpha: 2.0             # alpha used only when collecting positive samples
+
+# ─── Sampling ───
+num_timesteps: 128
+gen_length: 128
+seq_len: 128
+temperature: 1.0
+remasking: random
+batch_size: 4
+reward_eval_batch_size: 64
+max_batches: null          # cap the number of eval prompts (null = the whole split)
+
+# ─── SMC at inference ───
+K: 8
+M: 1
+score: twist
+chunk_m_size: 4
+chunk_b_size: 32
+call_chunk_size: null
+denoise_chunk_size: null
+cache_hidden: true
+twist_ckpt: null           # set to a trained twist to skip training and only sample
+
+eval_ppl: false            # Qwen perplexity of the generations (loads an extra model)
+
+# Multi-GPU. Falls back to single-GPU transparently when not launched under torchrun.
+distributed:
+  enabled: true
+
+# ─── Twist head (2-layer Transformer, hidden 4096) ───
+twist_arch: frozen_transformer   # frozen_linear | frozen_mlp | frozen_transformer
+twist_head_mlp_n_layers: 5
+twist_head_mlp_hidden_size: 768
+twist_head_tf_n_layers: 2
+twist_head_tf_n_heads: 32
+twist_head_tf_hidden_size: 4096
+twist_head_tf_ffn_size: 16384
+twist_head_tf_dropout: 0.1
+
+# ─── CDM training ───
+twist_lr: 1e-4
+twist_weight_decay: 0.01
+twist_epochs: 50
+twist_steps_per_epoch: 4         # n_update: gradient steps between positive-buffer refreshes
+twist_batch_size: 64
+twist_log_every: 1
+twist_clip_grad_norm: 1.0
+twist_lr_decay_start_frac:
+twist_score: x0_pred             # value score driving the positive SMC collector
+full_eval_interval: 100          # run a full evaluate() every N epochs; null/0 disables
+model_save_interval: 20
+
+cdm_buffer_size: 64              # positive buffer size
+cdm_pos_sample_method: smc       # is | smc | asmc | tsmc
+cdm_neg_sample_method: multi_is  # is | multi_is
+cdm_ema_for_sampling: true       # collect negative samples with the EMA shadow
+cdm_pos_prompt_sample_size: 16   # global prompts loaded per epoch (split across ranks)
+cdm_neg_prompt_sample_size: 64
+match_pos_neg_prompt: true       # reuse the epoch's positive prompts for the negative phase
+do_pos_multi_smc: true           # run multi_smc_K independent SMCs per prompt
+multi_smc_K: 32
+multi_smc_pre_post: pre
+cdm_pos_keep_all_smc: true
+cdm_pos_uniform_subsample: false
+run_smc_size: 4                  # global chunk for the run_smc wrapper
+cdm_pos_reward_norm: none        # none | per_prompt
+cdm_pos_reward_norm_scale: 1.0
+pos_resample_method: ssp         # multinomial | ssp
+pos_ess_threshold: 0.5           # resample when normalized ESS < threshold
+cdm_stmc_frac: 0.5
+cdm_pos_random_sampling_method: uniform
+global_softmax: true             # softmax denominator spans all ranks (matches single-GPU)
+ema_decay: [0.99999]
+save_ema: false
+
+# ─── Reward models ───
+armorm_model_id: RLHFlow/ArmoRM-Llama3-8B-v0.1
+armorm_revision: null
+armorm_max_length: 4096
+armorm_truncation: true
+armorm_torch_dtype: bfloat16
+armorm_device_map: null
+armorm_trust_remote_code: true
+
+skywork_model_id: Skywork/Skywork-Reward-Llama-3.1-8B-v0.2
+skywork_revision: null
+skywork_max_length: 4096
+skywork_truncation: true
+skywork_torch_dtype: bfloat16
+skywork_device_map: null
+skywork_trust_remote_code: false
+
+# Optional: serve the 8B reward models from another GPU (see cdm/texts/reward_server.py).
+reward_server_enabled: false
+reward_server_addr: localhost
+reward_server_port: 5000
+reward_server_authkey: reward_secret
+
+hydra:
+  run:
+    dir: .
+  job:
+    chdir: false
+  output_subdir: null

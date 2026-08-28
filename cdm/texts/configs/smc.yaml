@@ -1,0 +1,82 @@
+# Base twisted SMC: the twist is the reward twist of Eq. (7), estimated with M x0-predictions
+# per denoising step. No trained twist head is involved. K=1 reduces to the base model.
+
+defaults:
+  - _self_
+  - override hydra/job_logging: disabled
+  - override hydra/hydra_logging: disabled
+
+# ─── Experiment ───
+disable_wandb: true
+wandb_project: cdm
+wandb_name:
+method: smc
+save_path: ./outputs/texts
+seed: 42
+device: cuda
+
+# RewardBench 80/20 split: train for CDM training, test for evaluation.
+train_rewardbench_jsonl: ./cdm/texts/text_dataset/rewardbench/train.jsonl
+eval_rewardbench_jsonl: ./cdm/texts/text_dataset/rewardbench/eval.jsonl
+
+# ─── Reward ───
+reward_name: skywork       # given reward; the heldout reward is always ArmoRM
+reward_label: positive
+kl_weight: 2.0             # larger than the other apps: Skywork scores live on a larger scale
+
+# ─── Sampling ───
+num_timesteps: 128
+gen_length: 128
+seq_len: 128
+temperature: 1.0
+remasking: random
+batch_size: 4
+reward_eval_batch_size: 64
+max_batches: null          # cap the number of eval prompts (null = the whole split)
+
+# ─── SMC at inference ───
+K: 8
+M: 1
+score: x0_pred
+chunk_m_size: 4            # max MC samples (M-axis) per forward in _score
+chunk_b_size: 32           # max particles (B-axis) per forward in the proposal
+call_chunk_size: null      # per-call chunk inside the denoiser; null = chunk_b_size
+denoise_chunk_size: null
+cache_hidden: true
+twist_ckpt: null
+
+eval_ppl: false            # Qwen perplexity of the generations (loads an extra model)
+
+# Multi-GPU. Falls back to single-GPU transparently when not launched under torchrun.
+distributed:
+  enabled: true
+
+# ─── Reward models ───
+armorm_model_id: RLHFlow/ArmoRM-Llama3-8B-v0.1
+armorm_revision: null
+armorm_max_length: 4096
+armorm_truncation: true
+armorm_torch_dtype: bfloat16
+armorm_device_map: null
+armorm_trust_remote_code: true
+
+skywork_model_id: Skywork/Skywork-Reward-Llama-3.1-8B-v0.2
+skywork_revision: null
+skywork_max_length: 4096
+skywork_truncation: true
+skywork_torch_dtype: bfloat16
+skywork_device_map: null
+skywork_trust_remote_code: false
+
+# Optional: serve the 8B reward models from another GPU (see cdm/texts/reward_server.py).
+reward_server_enabled: false
+reward_server_addr: localhost
+reward_server_port: 5000
+reward_server_authkey: reward_secret
+
+hydra:
+  run:
+    dir: .
+  job:
+    chdir: false
+  output_subdir: null

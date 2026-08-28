@@ -1,0 +1,125 @@
+# CDM. With twist_ckpt=null this trains psi_theta and then samples with it; with twist_ckpt=<path>
+# it skips training and runs the same SMC loop with the trained twist loaded.
+
+defaults:
+  - _self_
+  - model: small
+  - noise: loglinear
+  - data: openwebtext
+  - override hydra/job_logging: disabled
+  - override hydra/hydra_logging: disabled
+
+# ─── Experiment ───
+disable_wandb: true
+wandb_name: cdm
+method: cdm
+checkpoint_path: ./cdm/texts_mdm/checkpoints/mdlm.ckpt
+tokenizer: gpt2
+seq_len: 100
+save_path: ./outputs/texts_mdm
+
+reward_name: toxicity
+reward_label: positive
+kl_weight: 0.2
+
+num_timesteps: 100
+gen_length: null
+batch_size: 4
+reward_eval_batch_size: 512
+num_sample_batches: 20
+
+prompt_file: ./cdm/texts_mdm/data/pplm_discrim_prompts_orig.jsonl
+reward_trim_length: 100
+
+# ─── SMC at inference ───
+K: 8
+ess_threshold: 0.5        # resample when normalized ESS < ess_threshold * K
+score: twist
+M: null
+m_chunk_size: 32
+twist_ckpt: null          # set to a trained twist to skip training and only sample
+
+seed: 42
+
+# ─── Twist head (MLP, 5 x 768) ───
+twist_head_mlp_n_layers: 5
+twist_head_mlp_hidden_size: 768
+
+# ─── CDM training ───
+twist_lr: 1e-4
+twist_weight_decay: 0.01
+twist_epochs: 85
+twist_steps_per_epoch: 4        # n_update: gradient steps between positive-buffer refreshes
+twist_batch_size: 64
+twist_log_every: 1
+twist_clip_grad_norm: 1
+twist_lr_decay_start_frac: 0.8
+twist_M: 1                      # x0-predictions per step when scoring positive SMC samples
+twist_x0_pred_batch_size: 8
+
+cdm_pos_batch_size: 64          # positive buffer size
+cdm_smc_chunk_size: 128
+gumbel_chunk_size: 256
+pos_ess_threshold: 0.5
+ema_decay: [0.99999]
+
+# ─── Vendored MDLM model schema (consumed by diffusion.Diffusion; not CDM options) ───
+backbone: dit
+parameterization: subs
+T: 0
+time_conditioning: false
+subs_masking: false
+
+training:
+  ema: 0.9999
+  antithetic_sampling: true
+  importance_sampling: false
+  change_of_variables: false
+  sampling_eps: 1.0e-3
+
+sampling:
+  predictor: ddpm_cache
+  steps: ${num_timesteps}
+  noise_removal: true
+  nucleus_p: 0.9
+  sampler: mdlm
+  dfm: false
+  num_sample_batches: 1
+  num_sample_log: 1
+  semi_ar: false
+  stride_length: 1
+  num_strides: 1
+
+eval:
+  checkpoint_path: ${checkpoint_path}
+  gen_ppl_eval_model_name_or_path: gpt2-large
+  compute_generative_perplexity: false
+  perplexity_batch_size: 8
+  compute_perplexity_on_sanity: false
+  generate_samples: false
+
+optim:
+  lr: ${twist_lr}
+  beta1: 0.9
+  beta2: 0.999
+  eps: 1.0e-8
+  weight_decay: 0
+
+loader:
+  batch_size: ${batch_size}
+  eval_batch_size: ${batch_size}
+  num_workers: 4
+  pin_memory: true
+
+lr_scheduler:
+  _target_: utils.CosineDecayWarmupLRScheduler
+
+hydra:
+  run:
+    dir: .
+  job:
+    chdir: false
+  output_subdir: null
+  job_logging:
+    root:
+      handlers: []

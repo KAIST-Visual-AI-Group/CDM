@@ -1,0 +1,106 @@
+# CDM. With twist_ckpt=null this trains psi_theta and then samples with it; with
+# twist_ckpt=<path> it skips training and runs the same SMC loop with the trained twist loaded.
+
+defaults:
+  - _self_
+  - model: dnaconv
+  - noise: loglinear
+  - override hydra/job_logging: disabled
+  - override hydra/hydra_logging: disabled
+
+# ─── Experiment ───
+disable_wandb: true
+wandb_name: cdm
+method: cdm
+checkpoint_path: ./cdm/dna/checkpoints/mpra.ckpt
+seq_len: 200
+save_path: ./outputs/dna
+
+reward_name: hepg2
+kl_weight: 0.2
+
+num_timesteps: 50
+gen_length: 200
+batch_size: 10
+num_sample_batches: 200
+
+# ─── SMC at inference ───
+K: 8
+score: twist
+ess_threshold: 0.5        # resample when ESS < ess_threshold * K
+M: null
+m_chunk_size: 128
+b_chunk_size: 128
+twist_ckpt: null          # set to a trained twist to skip training and only sample
+
+seed: 42
+
+# ─── Twist head (MLP + sinusoidal PE, 7 x 1024; the CNN backbone carries no positions) ───
+twist_head_type: positional_mlp
+twist_head_mlp_n_layers: 7
+twist_head_mlp_hidden_size: 1024
+twist_head_n_heads: 4
+
+# ─── CDM training ───
+twist_lr: 3e-4
+twist_weight_decay: 0.01
+twist_epochs: 500
+twist_steps_per_epoch: 1        # n_update: gradient steps between positive-buffer refreshes
+twist_batch_size: 128
+twist_log_every: 1
+twist_clip_grad_norm: null
+twist_lr_decay_start_frac: 0.8
+twist_M: 4                      # x0-predictions per step when scoring positive SMC samples
+twist_score: x0_pred
+
+cdm_ema_decay: 0.9999
+cdm_pos_sample_method: smc      # is | smc | asmc
+cdm_neg_sample_method: is       # is | smc
+cdm_pos_batch_size: 128         # positive buffer size
+
+# ─── Vendored duo/MDLM model schema (consumed by diffusion.Diffusion; not CDM options) ───
+backbone: cnn
+parameterization: subs
+T: 0
+time_conditioning: false
+subs_masking: false
+
+training:
+  ema: 0.9999
+  antithetic_sampling: true
+  importance_sampling: false
+  change_of_variables: false
+  sampling_eps: 1.0e-3
+
+sampling:
+  predictor: ddpm_cache
+  steps: ${num_timesteps}
+  noise_removal: true
+  sampler: mdlm
+
+eval:
+  checkpoint_path: ${checkpoint_path}
+
+optim:
+  lr: ${twist_lr}
+  beta1: 0.9
+  beta2: 0.999
+  eps: 1.0e-8
+  weight_decay: 0
+
+loader:
+  batch_size: ${batch_size}
+  eval_batch_size: ${batch_size}
+
+lr_scheduler:
+  _target_: cdm.dna.utils.CosineDecayWarmupLRScheduler
+
+hydra:
+  run:
+    dir: .
+  job:
+    chdir: false
+  output_subdir: null
+  job_logging:
+    root:
+      handlers: []

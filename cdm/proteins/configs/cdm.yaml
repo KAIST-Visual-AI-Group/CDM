@@ -1,0 +1,94 @@
+# CDM. With twist_ckpt=null this trains psi_theta and then samples with it; with
+# twist_ckpt=<path> it skips training and runs the same SMC loop with the trained twist loaded.
+
+defaults:
+  - _self_
+  - override hydra/job_logging: disabled
+  - override hydra/hydra_logging: disabled
+
+# ─── Experiment ───
+disable_wandb: true
+wandb_project: cdm
+wandb_entity:
+wandb_name:
+method: cdm
+save_path: ./outputs/proteins
+seed: 42
+
+# ─── Sampling ───
+seq_length: 100            # 204 tokens total: 100 AA + 100 struct + 4 bos/eos
+steps: 20
+batch_size: 10
+num_sample_batches: 50
+temperature: 1.0
+sampling_strategy: "annealing@2.0:0.1"
+
+# ─── Reward ───
+reward_name: esmfold       # given reward -scRMSD; heldout reward scTM from the same fold
+kl_weight: 0.1
+
+# ─── SMC at inference ───
+K: 8
+score: twist
+M: 1
+ess_threshold: 0.5         # resample when normalized ESS < ess_threshold * K
+chunk_m_size: 8
+chunk_b_size: 8
+chunk_sample_size: 8
+twist_ckpt: null           # set to a trained twist to skip training and only sample
+
+# ─── Twist head (MLP, 5 x 1024) ───
+twist_arch: frozen_mlp     # frozen_linear | frozen_mlp | frozen_transformer
+twist_head_mlp_n_layers: 5
+twist_head_mlp_hidden_size: 1024
+twist_head_transformer_n_layers: 2
+twist_head_transformer_n_heads: 8
+twist_head_transformer_ff_dim: 1024
+
+# ─── CDM training ───
+twist_lr: 1e-4
+twist_weight_decay: 0.01
+twist_epochs: 300
+twist_steps_per_epoch: 10       # n_update: gradient steps between positive-buffer refreshes
+twist_batch_size: 64
+twist_log_every: 1
+twist_clip_grad_norm: 10
+twist_lr_decay_start_frac: 0.8
+twist_t_sampling: random        # random | full
+twist_t_schedule: random        # random | decreasing | increasing
+twist_t_schedule_steps: 20
+twist_score: x0_pred            # value score driving the positive SMC collector
+twist_epochs_intermediate_eval: 1
+
+cdm_buffer_size: 64             # positive buffer size
+cdm_train_chunk_size: 8         # B-axis chunk for pos/neg sample collection
+cdm_pos_sample_method: smc      # is | smc | asmc | tsmc
+cdm_neg_sample_method: is       # is | smc
+cdm_pos_smc_mode: multi_smc     # single_smc | multi_smc
+cdm_neg_smc_mode: multi_smc
+cdm_K: 4                        # particles per sequence when the collector uses multi_smc
+
+# EMA of the twist head. The first decay is the one used for sampling.
+cdm_ema_decay: [0.99, 0.999, 0.9]
+cdm_save_ema: true
+cdm_ema_for_sampling: true      # collect pos/neg samples with the EMA shadow
+cdm_ema_schedule: uniform       # uniform | nft
+cdm_ema_nft_start_frac: 0.1
+cdm_active_head_ema: 0.9999     # EMA of the frozen head that supplies the neg-loss IS weights
+
+# Light reward-based eval during training.
+cdm_eval_every: 1
+cdm_eval_every_steps:
+cdm_save_every_steps: 10
+cdm_eval_batches: 5
+cdm_eval_batch_size: 10
+
+hydra:
+  run:
+    dir: .
+  job:
+    chdir: false
+  output_subdir: null
+  job_logging:
+    root:
+      handlers: []

@@ -1,0 +1,14 @@
+# Model weights (downloaded, see README)
+cdm/*/checkpoints/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.ipynb_checkpoints/
+
+# Editor / tooling state
+.claude/
+
