@@ -1,4 +1,4 @@
-<div align=center>
+<div align=center> 
 
 # CDM: Contrastive Distribution Matching for<br>Amortized Sequential Monte Carlo in Discrete Diffusion
 
